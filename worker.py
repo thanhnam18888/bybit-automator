@@ -12,6 +12,8 @@ SCRIPT_B7 = "/data/b11timeok.py"
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
 def job():
+    print("🔍 DEBUG: job() bắt đầu chạy.")  # <- CHÈN DÒNG NÀY
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
     print(f"\n[{timestamp}] === Running BYBIT WORKER JOB ===")
     try:
