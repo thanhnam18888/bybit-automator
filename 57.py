@@ -8,7 +8,7 @@ import requests
 from multiprocessing import Pool
 
 # === Cài đặt ===
-folder_path = "D:/C5_COIN/D1_DU_LIEU/bybit_full_history"
+folder_path = "/data/bybit_full_history"
 interval = "60"
 total_limit = 1200  # tổng số nến cần
 batch_size = 200    # mỗi lần gọi 200 nến
