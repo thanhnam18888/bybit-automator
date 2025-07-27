@@ -15,13 +15,15 @@ from requests.exceptions import HTTPError
 import logging
 
 # ---- Cấu hình logging ----
-logging.basicConfig(level=logging.INFO, format='%(asctime)
-# Hiển thị cấu hình proxy từ env vars
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+# ---- Kiểm tra proxy từ env vars ----
 proxy = os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
 if proxy:
-    logging.info(f\"Proxy configured: {proxy}\")
+    logging.info(f"Proxy configured: {proxy}")
 else:
-    logging.info(\"No proxy configured (HTTP_PROXY/HTTPS_PROXY)\")s %(levelname)s %(message)s')
+    logging.info("No proxy configured (HTTP_PROXY/HTTPS_PROXY)")
+
 
 # ---- Thư mục dữ liệu (dynamic) ----
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
