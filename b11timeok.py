@@ -7,7 +7,10 @@ import numpy as np
 import time
 from pathlib import Path
 from pybit.unified_trading import HTTP
-from pybit._exceptions import FailedRequestError
+try:
+    from pybit.exceptions import FailedRequestError
+except ImportError:
+    from pybit._exceptions import FailedRequestError
 from requests.exceptions import HTTPError
 import logging
 
