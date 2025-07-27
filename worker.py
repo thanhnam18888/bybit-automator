@@ -20,8 +20,7 @@ def job():
     print("🔍 DEBUG: job() bắt đầu chạy.", flush=True)
 
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    print(f"
-[{timestamp}] === Running BYBIT WORKER JOB ===", flush=True)
+    print(f"\n[{timestamp}] === Running BYBIT WORKER JOB ===", flush=True)
 
     try:
         files = os.listdir(HISTORY_DIR)
@@ -32,15 +31,13 @@ def job():
 
     print(f"[{timestamp}] === Starting 57.py ===", flush=True)
     r1 = subprocess.run(["python", SCRIPT_57], capture_output=True, text=True)
-    print("📤 57.py output:
-", r1.stdout, flush=True)
+    print("📤 57.py output:\n", r1.stdout, flush=True)
     if r1.stderr:
         print("❌ Error (57.py):", r1.stderr, flush=True)
 
     print(f"[{timestamp}] === Starting b11timeok.py ===", flush=True)
     r2 = subprocess.run(["python", SCRIPT_B7], capture_output=True, text=True)
-    print("📤 b11timeok.py output:
-", r2.stdout, flush=True)
+    print("📤 b11timeok.py output:\n", r2.stdout, flush=True)
     if r2.stderr:
         print("❌ Error (b11timeok.py):", r2.stderr, flush=True)
 
