@@ -4,11 +4,9 @@ import subprocess
 from datetime import datetime, timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-# Thư mục chứa file CSV P2P history (được mount vào /data/bybit_full_history)
-HISTORY_DIR = "/data/bybit_full_history"
-
-# Thư mục gốc của project (chứa worker.py, 57.py, b11timeok.py, check_data_dir.py)
+# Thư mục chứa file CSV P2P history (nằm trong thư mục code)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HISTORY_DIR = os.path.join(BASE_DIR, "bybit_full_history")
 
 # Đường dẫn đến các script
 SCRIPT_57 = os.path.join(BASE_DIR, "57.py")
@@ -33,16 +31,14 @@ def job():
     # Chạy script 57.py unbuffered
     print(f"[{timestamp}] === Starting 57.py ===", flush=True)
     r1 = subprocess.run(["python", "-u", SCRIPT_57], capture_output=True, text=True)
-    print("📤 57.py output:
-", r1.stdout, flush=True)
+    print("📤 57.py output:\n", r1.stdout, flush=True)
     if r1.stderr:
         print("❌ Error (57.py):", r1.stderr, flush=True)
 
     # Chạy script b11timeok.py unbuffered
     print(f"[{timestamp}] === Starting b11timeok.py ===", flush=True)
     r2 = subprocess.run(["python", "-u", SCRIPT_B7], capture_output=True, text=True)
-    print("📤 b11timeok.py output:
-", r2.stdout, flush=True)
+    print("📤 b11timeok.py output:\n", r2.stdout, flush=True)
     if r2.stderr:
         print("❌ Error (b11timeok.py):", r2.stderr, flush=True)
 
