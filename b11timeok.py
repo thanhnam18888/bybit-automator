@@ -7,6 +7,7 @@ import numpy as np
 import time
 from pathlib import Path
 from pybit.unified_trading import HTTP
+import requests
 try:
     from pybit.exceptions import FailedRequestError
 except ImportError:
@@ -15,7 +16,16 @@ from requests.exceptions import HTTPError
 import logging
 
 # ---- Cấu hình logging ----
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)
+# ---- Support proxy via HTTPS_PROXY/HTTP_PROXY env var ----
+requests_session = requests.Session()
+proxy = os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
+if proxy:
+    logging.info(f'Using proxy: {proxy}')
+    requests_session.proxies.update({'https': proxy, 'http': proxy})
+else:
+    requests_session = None
+s %(levelname)s %(message)s')
 
 # ---- Thư mục dữ liệu (dynamic) ----
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +38,7 @@ RECV_WINDOW  = 60000
 
 # ---- Khởi tạo session mainnet ----
 session = HTTP(
+    session=requests_session,
     api_key=API_KEY,
     api_secret=API_SECRET,
     recv_window=RECV_WINDOW
