@@ -10,7 +10,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 # ---- Thư mục dữ liệu ----
-history_dir = Path(r"D:/C5_COIN/D1_DU_LIEU/bybit_full_history")
+history_dir = Path("/data/bybit_full_history")
 
 # ---- Bybit API cho MAINNET ----
 API_KEY      = "fbUayzuilSFH13a87H"
