@@ -8,7 +8,9 @@ import requests
 from multiprocessing import Pool
 
 # === Cài đặt ===
-folder_path = "/data/bybit_full_history"
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+folder_path = os.path.join(BASE_DIR, "bybit_full_history")
 interval = "60"
 total_limit = 1200  # tổng số nến cần
 batch_size = 200    # mỗi lần gọi 200 nến
