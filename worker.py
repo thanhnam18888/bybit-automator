@@ -12,7 +12,7 @@ SCRIPT_B7 = "/data/b11timeok.py"
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
 def job():
-    print("🔍 DEBUG: job() bắt đầu chạy.")  # <- CHÈN DÒNG NÀY
+    print("🔍 DEBUG: job() bắt đầu chạy.")
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
     print(f"\n[{timestamp}] === Running BYBIT WORKER JOB ===")
@@ -36,10 +36,12 @@ def job():
         print("❌ Error (b11timeok.py):", r2.stderr)
 
 if __name__ == "__main__":
-    # Gọi chạy ngay để test
-    job()
+    try:
+        print("🧪 Gọi job() lần đầu...")
+        job()
+    except Exception as e:
+        print("❌ Lỗi khi chạy job() lần đầu:", e)
 
-    # Đặt lịch chạy mỗi giờ phút 01
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(job, "cron", minute=1)
     print("🕒 Scheduler started. Job will run every hour at HH:01 UTC.")
