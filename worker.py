@@ -4,9 +4,11 @@ import subprocess
 from datetime import datetime, timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-# Thư mục chứa file CSV P2P history (nằm trong thư mục code)
+# Thư mục chứa file CSV P2P history (được mount vào /data/bybit_full_history)
+HISTORY_DIR = "/data/bybit_full_history"
+
+# Thư mục gốc của project (chứa worker.py, 57.py, b11timeok.py)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-HISTORY_DIR = os.path.join(BASE_DIR, "bybit_full_history")
 
 # Đường dẫn đến các script
 SCRIPT_57 = os.path.join(BASE_DIR, "57.py")
