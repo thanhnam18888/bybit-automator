@@ -125,5 +125,5 @@ def process_file(file):
 
 if __name__ == "__main__":
     files = os.listdir(folder_path)
-    with Pool(processes=30) as pool:
+    with Pool(processes=5) as pool:
         pool.map(process_file, files)
