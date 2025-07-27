@@ -20,11 +20,9 @@ history_dir = BASE_DIR / "bybit_full_history"
 API_KEY    = "fbUayzuilSFH13a87H"
 API_SECRET = "mwJRm13UYelLHJsL00iyHFX2AjX2VPX6dL4N"
 RECV_WINDOW = 60000
-ENDPOINT    = "https://api.bybit.com"  # Mainnet endpoint
 
-# ---- Khởi tạo session ----
+# ---- Khởi tạo session mainnet ----
 session = HTTP(
-    endpoint=ENDPOINT,
     api_key=API_KEY,
     api_secret=API_SECRET,
     recv_window=RECV_WINDOW
@@ -74,11 +72,12 @@ def find_entry_signals(df: pd.DataFrame):
 def place_order(symbol: str, entry: float, sl: float, tp: float, precision: int):
     """Place market order and log result"""
     try:
+        qty = entry  # adjust if using get_qty-derived qty
         resp = session.place_order(
             symbol=symbol,
             side="Buy",
             order_type="Market",
-            qty=entry,  # using entry as quantity for simplicity; adjust as needed
+            qty=qty,
             time_in_force="IOC",
             reduce_only=False
         )
