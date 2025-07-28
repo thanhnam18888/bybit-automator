@@ -1,146 +1,117 @@
-#!/usr/bin/env python3
-import os
 import glob
-import math
 import pandas as pd
-import numpy as np
-import time
 from pathlib import Path
 from pybit.unified_trading import HTTP
-try:
-    from pybit.exceptions import FailedRequestError
-except ImportError:
-    from pybit._exceptions import FailedRequestError
-from requests.exceptions import HTTPError
+import numpy as np
+import time
 import logging
+import os
+from pybit.exceptions import FailedRequestError
 
-# ---- Cấu hình logging ----
+# ---- Debug logging ----
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-# ---- Thư mục dữ liệu (dynamic) ----
-BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
-history_dir = BASE_DIR / "bybit_full_history"
-
-# ---- Thông số API mainnet ----
-API_KEY      = "fbUayzuilSFH13a87H"
-API_SECRET   = "mwJRm13UYelLHJsL00iyHFX2AjX2VPX6dL4N"
+# ---- Bybit API cho MAINNET ----
+API_KEY      = os.getenv("API_KEY") or "fbUayzuilSFH13a87H"
+API_SECRET   = os.getenv("API_SECRET") or "mwJRm13UYelLHJsL00iyHFX2AjX2VPX6d4N"
 RECV_WINDOW  = 60000
+session      = HTTP(api_key=API_KEY, api_secret=API_SECRET, recv_window=RECV_WINDOW)
+session.get_server_time()
 
-# ---- Khởi tạo session mainnet ----
-session = HTTP(
-    api_key=API_KEY,
-    api_secret=API_SECRET,
-    recv_window=RECV_WINDOW
-)
-
-# Bỏ qua lỗi get_server_time
-try:
-    session.get_server_time()
-except Exception as e:
-    logging.warning("Ignoring get_server_time error: %s", e)
-
-# ---- Tham số chiến lược ----
+# ---- Strategy parameters ----
 MIN_LOOKBACK = 26
-TP_RATIO     = 1.02  # Take-profit ratio
-MARGIN       = 1.0   # USD margin per trade
-LEVERAGE     = 10    # Leverage factor
-RATE_LIMIT_DELAY = 0.2  # seconds between API calls
+TP_RATIO     = 1.02  # Take profit at 2% above entry
+MARGIN       = 1.0
+LEVERAGE     = 10
 
-def get_qty(symbol: str, entry_price: float):
-    """Tính quantity và precision theo lotSizeFilter"""
-    try:
-        resp = session.get_instruments_info(category="linear", symbol=symbol)
-        filt = resp["result"]["list"][0]["lotSizeFilter"]
-        step = float(filt["qtyStep"])
-        min_qty = float(filt["minOrderQty"])
-    except (HTTPError, FailedRequestError) as e:
-        logging.error("Error fetching symbol info for %s: %s", symbol, e)
-        return 0, 0
-    raw_qty = (MARGIN * LEVERAGE) / entry_price
-    if step > 0:
-        qty = max(min_qty, math.floor(raw_qty / step) * step)
-        precision = abs(int(math.log10(step))) if 0 < step < 1 else 0
-    else:
-        qty = raw_qty
-        precision = 0
+# ---- Data directory ----
+history_dir = Path(os.getenv("HISTORY_DIR", ".")) / "bybit_full_history"
+
+def get_qty(symbol, entry_price):
+    info = session.get_instruments_info(category="linear", symbol=symbol)
+    filt = info["result"]["list"][0]["lotSizeFilter"]
+    step = float(filt["qtyStep"])
+    min_qty = float(filt["minOrderQty"])
+    raw = (MARGIN * LEVERAGE) / entry_price
+    qty = max(min_qty, np.floor(raw / step) * step) if step > 0 else raw
+    precision = abs(int(np.log10(step))) if step < 1 and step > 0 else 0
     return qty, precision
 
-def find_signals(df: pd.DataFrame):
-    """Signal khi giá cắt xuống biên dưới và không có lần nào trong look-back trước đó"""
+def find_signals(df):
     df = df.copy()
-    df["close_prev"] = df["close"].shift(1)
-    df["lower_prev"] = df["lower"].shift(1)
-    cond_cross = (df["close"] < df["lower"]) & (df["close_prev"] >= df["lower_prev"])
+    df['lower_prev'] = df['lower'].shift(1)
+    df['close_prev'] = df['close'].shift(1)
+    cond_cross = (df['close'] < df['lower']) & (df['close_prev'] >= df['lower_prev'])
     signals = []
-    for i in range(1, len(df)):
-        if cond_cross.iat[i]:
-            start = max(0, i - MIN_LOOKBACK)
-            if (df["close"].iloc[start:i] >= df["lower"].iloc[start:i]).all():
-                signals.append(i)
-                break  # chỉ lấy tín hiệu đầu tiên
+    for i in df.index:
+        if not cond_cross.iat[i]:
+            continue
+        start = max(0, i - MIN_LOOKBACK)
+        if (df['close'].iloc[start:i] >= df['lower'].iloc[start:i]).all():
+            signals.append(i)
     return signals
 
-def place_full_market_order(symbol: str, qty: float, sl_price: float, tp_price: float):
-    """
-    Place a market order and set SL/TP using V5 API.
-    """
-    # Determine side based on qty
-    side = "Buy" if qty > 0 else "Sell"
-    """Đặt order thị trường cho đến khi khớp đủ, sau đó set SL/TP"""
+def place_full_market_order(symbol, qty, sl_price, tp_price, precision):
+    total_filled = 0.0
     remaining = qty
+    side = "Buy" if remaining > 0 else "Sell"
     while remaining > 0:
+        logging.info(f"Placing market for remaining {remaining:.{precision}f} {symbol}")
         try:
-            res = session.place_order(
-        category="linear",
-        symbol=symbol,
-        side=side,
-        orderType="Market",
-        qty=str(abs(qty)),
-        timeInForce="GoodTillCancel",
-        reduceOnly=False,
-        closeOnTrigger=False,
-        takeProfit=tp_price,
-        takeProfitTriggerBy="LastPrice",
-        stopLoss=sl_price,
-        stopLossTriggerBy="LastPrice",
-    )
-            filled = float(res["result"].get("execQty", 0) or res["result"].get("filled_qty", 0))
-            remaining -= filled
-            logging.info("Filled %s %s, remaining %s", filled, symbol, remaining)
-        except (HTTPError, FailedRequestError) as e:
-            logging.error("Error placing market order for %s: %s", symbol, e)
-            return
-        time.sleep(RATE_LIMIT_DELAY)
-    try:
-        session.set_trading_stop(
-            symbol=symbol,
-            take_profit=tp_price,
-            stop_loss=sl_price,
-            time_in_force="GoodTillCancel"
-        )
-        logging.info("SL/TP set for %s: SL=%s, TP=%s", symbol, sl_price, tp_price)
-    except (HTTPError, FailedRequestError) as e:
-        logging.error("Error setting SL/TP for %s: %s", symbol, e)
+            order = session.place_order(
+                category="linear",
+                symbol=symbol,
+                side=side,
+                orderType="Market",
+                qty=f"{remaining:.{precision}f}",
+                timeInForce="GoodTillCancel",
+                takeProfit=f"{tp_price:.{precision}f}",
+                stopLoss=f"{sl_price:.{precision}f}",
+                recv_window=RECV_WINDOW
+            )
+        except FailedRequestError as e:
+            logging.error(f"Order failed: {e}")
+            break
+        result = order.get("result", {})
+        filled = float(result.get("cumExecQty", remaining))
+        total_filled += filled
+        remaining = qty - total_filled
+        if filled == 0:
+            logging.warning("No fill in this attempt, stopping.")
+            break
+        time.sleep(0.5)
+    logging.info(f"Total filled: {total_filled:.{precision}f}/{qty:.{precision}f}")
+    return total_filled
 
 def main():
-    files = sorted(glob.glob(str(history_dir / "*_1h.csv")))
-    if not files:
-        logging.error("No CSV files found in %s", history_dir)
-        return
-    for fp in files:
-        df = pd.read_csv(fp)
-        signals = find_signals(df)
-        if not signals:
+    for fp in glob.glob(str(history_dir / "*_1h.csv")):
+        try:
+            df = pd.read_csv(fp)
+        except pd.errors.EmptyDataError:
+            logging.warning(f"Skipping empty file: {fp}")
             continue
-        idx = signals[0]
-        symbol = Path(fp).stem.replace("_1h", "")
-        entry = float(df.at[idx, "close"])
-        sl    = float(df.at[idx, "low"])
-        tp    = entry * TP_RATIO
-        qty, precision = get_qty(symbol, entry)
-        if qty <= 0:
-            continue
-        place_full_market_order(symbol, qty, sl, tp)
+
+        time_col = df.columns[0]
+        df[time_col] = pd.to_datetime(df[time_col], utc=True, errors='coerce')
+
+        sig_idxs = find_signals(df)
+        if sig_idxs and sig_idxs[-1] == df.index[-1]:
+            idx = sig_idxs[-1]
+            ts = df.at[idx, time_col]
+            entry_price = df.at[idx, 'close']
+            sl_price = df.at[idx, 'low']
+            tp_price = entry_price * TP_RATIO
+
+            symbol = Path(fp).stem.split('_')[0]
+            qty, precision = get_qty(symbol, entry_price)
+            logging.info(f"{symbol} | {ts} | entry={entry_price:.4f} | sl={sl_price:.4f} | tp={tp_price:.4f} | qty={qty:.{precision}f}")
+
+            # Skip order if take profit <= entry price
+            if tp_price <= entry_price:
+                logging.info(f"Skipping {symbol} at {ts} because TP ({tp_price:.{precision}f}) <= Entry ({entry_price:.{precision}f})")
+                continue
+
+            place_full_market_order(symbol, qty, sl_price, tp_price, precision)
 
 if __name__ == "__main__":
     main()
