@@ -84,6 +84,7 @@ def place_full_market_order(symbol, qty, sl_price, tp_price, precision):
     return total_filled
 
 def main():
+    logging.info('=== Running b11timeok.py job ===')
     for fp in glob.glob(str(history_dir / "*_1h.csv")):
         try:
             df = pd.read_csv(fp)
