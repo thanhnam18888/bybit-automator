@@ -16,7 +16,6 @@ SCRIPT_B7 = os.path.join(BASE_DIR, "b11timeok.py")
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
 def job():
-    print("🔍 DEBUG: job() bắt đầu chạy.", flush=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     print(f"[{timestamp}] === Running BYBIT WORKER JOB ===", flush=True)
 
@@ -34,12 +33,14 @@ def job():
     if r1.stderr:
         print("❌ Error (57.py):", r1.stderr, flush=True)
 
-    # Chạy script b11timeok.py unbuffered
+    # Chạy script b11timeok.py unbuffered với log rõ ràng
     print(f"[{timestamp}] === Starting b11timeok.py ===", flush=True)
+    print(f"[{timestamp}] --- Begin b11timeok.py execution ---", flush=True)
     r2 = subprocess.run(["python", "-u", SCRIPT_B7], capture_output=True, text=True)
     print("📤 b11timeok.py output:\n", r2.stdout, flush=True)
     if r2.stderr:
         print("❌ Error (b11timeok.py):", r2.stderr, flush=True)
+    print(f"[{timestamp}] --- End b11timeok.py execution ---", flush=True)
 
 if __name__ == "__main__":
     # Chạy job lần đầu ngay khi khởi động
