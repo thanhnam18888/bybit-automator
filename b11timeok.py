@@ -82,20 +82,13 @@ def place_full_market_order(symbol: str, qty: float, sl_price: float, tp_price: 
     remaining = qty
     while remaining > 0:
         try:
-            res = session.place_order(
-        category="linear",
-        symbol=symbol,
-        side=side,
-        orderType="Market",
-        qty=qty,
-        timeInForce="GoodTillCancel",
-        reduceOnly=False,
-        closeOnTrigger=False,
-        takeProfit=tp_price,
-        takeProfitTriggerBy="LastPrice",
-        stopLoss=sl_price,
-        stopLossTriggerBy="LastPrice",
-    )
+            res = session.place_active_order(
+                symbol=symbol,
+                side="Buy",
+                order_type="Market",
+                qty=remaining,
+                time_in_force="IOC"
+            )
             filled = float(res["result"].get("execQty", 0) or res["result"].get("filled_qty", 0))
             remaining -= filled
             logging.info("Filled %s %s, remaining %s", filled, symbol, remaining)
