@@ -7,23 +7,12 @@ import numpy as np
 import time
 from pathlib import Path
 from pybit.unified_trading import HTTP
-try:
-    from pybit.exceptions import FailedRequestError
-except ImportError:
-    from pybit._exceptions import FailedRequestError
+from pybit._exceptions import FailedRequestError
 from requests.exceptions import HTTPError
 import logging
 
 # ---- Cấu hình logging ----
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-
-# ---- Kiểm tra proxy từ env vars ----
-proxy = os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
-if proxy:
-    logging.info(f"Proxy configured: {proxy}")
-else:
-    logging.info("No proxy configured (HTTP_PROXY/HTTPS_PROXY)")
-
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')s %(levelname)s %(message)s')
 
 # ---- Thư mục dữ liệu (dynamic) ----
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -93,13 +82,20 @@ def place_full_market_order(symbol: str, qty: float, sl_price: float, tp_price: 
     remaining = qty
     while remaining > 0:
         try:
-            res = session.place_active_order(
-                symbol=symbol,
-                side="Buy",
-                order_type="Market",
-                qty=remaining,
-                time_in_force="IOC"
-            )
+            res = session.place_order(
+        category="linear",
+        symbol=symbol,
+        side=side,
+        orderType="Market",
+        qty=qty,
+        timeInForce="GoodTillCancel",
+        reduceOnly=False,
+        closeOnTrigger=False,
+        takeProfit=tp_price,
+        takeProfitTriggerBy="LastPrice",
+        stopLoss=sl_price,
+        stopLossTriggerBy="LastPrice",
+    )
             filled = float(res["result"].get("execQty", 0) or res["result"].get("filled_qty", 0))
             remaining -= filled
             logging.info("Filled %s %s, remaining %s", filled, symbol, remaining)
