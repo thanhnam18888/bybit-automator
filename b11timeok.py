@@ -12,7 +12,7 @@ from requests.exceptions import HTTPError
 import logging
 
 # ---- Cấu hình logging ----
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')s %(levelname)s %(message)s')s %(levelname)s %(message)s')
 
 # ---- Thư mục dữ liệu (dynamic) ----
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
