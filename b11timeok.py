@@ -15,7 +15,7 @@ from requests.exceptions import HTTPError
 import logging
 
 # ---- Cấu hình logging ----
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 # ---- Thư mục dữ liệu (dynamic) ----
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -81,6 +81,11 @@ def find_signals(df: pd.DataFrame):
     return signals
 
 def place_full_market_order(symbol: str, qty: float, sl_price: float, tp_price: float):
+    """
+    Place a market order and set SL/TP using V5 API.
+    """
+    # Determine side based on qty
+    side = "Buy" if qty > 0 else "Sell"
     """Đặt order thị trường cho đến khi khớp đủ, sau đó set SL/TP"""
     remaining = qty
     while remaining > 0:
