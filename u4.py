@@ -1,7 +1,6 @@
 import sys
 import asyncio
 
-# Trên Windows, chuyển sang SelectorEventLoop để hài hoà với aiodns
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -14,10 +13,10 @@ from datetime import datetime, timedelta, timezone
 contracts_file = "capcoin.csv"
 data_folder = "/data/Data1200bar"
 interval = "60"  # nến 1h
-batch_limit = 200  # theo khuyến nghị Bybit; có thể tăng lên 400 nếu cần
-sem_limit = 10  # số symbol xử lý đồng thời
+batch_limit = 200
+sem_limit = 10
 start_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
-
+MAX_BARS = 1200  # <--- GIỚI HẠN SỐ NẾN LƯU LẠI
 
 # ==== HỖ TRỢ LẤY LIST SYMBOL VỚI PAGINATION ====
 async def fetch_instrument_set(session, category):
@@ -37,12 +36,10 @@ async def fetch_instrument_set(session, category):
             break
     return symbols
 
-
 async def fetch_symbol_lists(session):
     linear_set = await fetch_instrument_set(session, "linear")
     spot_set = await fetch_instrument_set(session, "spot")
     return linear_set, spot_set
-
 
 # ==== HỖ TRỢ LẤY OHLC BATCH ====
 async def fetch_ohlc(session, symbol, category, start_ms, end_ms):
@@ -67,7 +64,6 @@ async def fetch_ohlc(session, symbol, category, start_ms, end_ms):
         df[col] = df[col].astype(float)
     return df
 
-
 # ==== HỖ TRỢ BACKFILL TỪ ĐẦU ====
 async def fetch_full_history(session, symbol, category, last_closed):
     parts = []
@@ -85,15 +81,15 @@ async def fetch_full_history(session, symbol, category, last_closed):
         return pd.DataFrame()
     full = pd.concat(parts, ignore_index=True).drop_duplicates("timestamp")
     full = full.sort_values("timestamp").reset_index(drop=True)
-    # Xóa timezone để chỉ ghi datetime naive
+    # Chỉ giữ lại 1200 nến cuối
+    if len(full) > MAX_BARS:
+        full = full.iloc[-MAX_BARS:]
     full["timestamp"] = full["timestamp"].dt.tz_localize(None)
     return full
-
 
 # ==== XỬ LÝ 1 SYMBOL ====
 async def process_symbol(symbol, linear_set, spot_set, last_closed, session, sem):
     async with sem:
-        # xác định category
         if symbol in linear_set:
             category = "linear"
         elif symbol in spot_set:
@@ -118,6 +114,9 @@ async def process_symbol(symbol, linear_set, spot_set, last_closed, session, sem
                 print(f"[{symbol}] ⚠️ No data for both categories, skipping.")
             else:
                 os.makedirs(data_folder, exist_ok=True)
+                # Chỉ giữ 1200 nến cuối
+                if len(df_full) > MAX_BARS:
+                    df_full = df_full.iloc[-MAX_BARS:]
                 df_full.to_csv(fp, index=False)
                 print(
                     f"[{symbol}] ✓ Full backfill saved ({category_used}): {len(df_full)} candles"
@@ -144,6 +143,9 @@ async def process_symbol(symbol, linear_set, spot_set, last_closed, session, sem
             if df_full.empty:
                 print(f"[{symbol}] ⚠️ No data on retry, skipping.")
             else:
+                # Chỉ giữ 1200 nến cuối
+                if len(df_full) > MAX_BARS:
+                    df_full = df_full.iloc[-MAX_BARS:]
                 df_full.to_csv(fp, index=False)
                 print(
                     f"[{symbol}] ✓ Backfill saved ({category_used}): {len(df_full)} candles"
@@ -154,8 +156,10 @@ async def process_symbol(symbol, linear_set, spot_set, last_closed, session, sem
         since = last_ts + timedelta(hours=1)
         if since > last_closed:
             print(f"[{symbol}] ℹ️ Up-to-date ({category}), normalizing file...")
-            # Xóa timezone và ghi lại chỉ 5 cột
             df_old["timestamp"] = df_old["timestamp"].dt.tz_localize(None)
+            # Chỉ giữ 1200 nến cuối
+            if len(df_old) > MAX_BARS:
+                df_old = df_old.iloc[-MAX_BARS:]
             df_old.to_csv(fp, index=False)
             return
 
@@ -180,16 +184,16 @@ async def process_symbol(symbol, linear_set, spot_set, last_closed, session, sem
                 .sort_values("timestamp")
                 .reset_index(drop=True)
             )
-            # Xóa timezone trước khi lưu
+            # Chỉ giữ 1200 nến cuối
+            if len(df_combined) > MAX_BARS:
+                df_combined = df_combined.iloc[-MAX_BARS:]
             df_combined["timestamp"] = df_combined["timestamp"].dt.tz_localize(None)
             df_combined.to_csv(fp, index=False)
             print(f"[{symbol}] ✓ Updated to {last_closed.replace(tzinfo=None)}")
 
-
 # ==== MAIN ====
 async def main():
     os.makedirs(data_folder, exist_ok=True)
-
     now_utc = datetime.now(timezone.utc)
     last_closed = now_utc.replace(minute=0, second=0, microsecond=0) - timedelta(
         hours=1
@@ -216,7 +220,6 @@ async def main():
             for sym in symbols
         ]
         await asyncio.gather(*tasks)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
