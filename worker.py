@@ -44,7 +44,7 @@ if __name__ == "__main__":
         job()
         scheduler = BlockingScheduler()
         scheduler.add_job(job, "cron", minute=0, second=15)
-        print("[WORKER] Scheduler started. Job sẽ chạy mỗi giờ vào phút 01.")
+        print("[WORKER] Scheduler started. Job sẽ chạy mỗi giờ vào giây 01.")
         scheduler.start()
     except Exception as e:
         print("=== [ERROR] Exception in worker.py main ===")
