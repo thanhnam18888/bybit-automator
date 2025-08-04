@@ -26,6 +26,7 @@ STDDEV       = 2.0
 EMA_LEN      = 200
 WAIT_BARS    = 5
 ORDER_LOG    = "/data/active_orders.json"
+
 logging.basicConfig(level=logging.INFO)
 
 print("[T1] Kết nối Bybit...")
@@ -193,35 +194,38 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
 def main():
     active_orders = load_active_orders()
     csv_files = glob.glob(os.path.join(DATA_FOLDER, "*_1h.csv"))
-    print(f"[T1] Phát hiện {len(csv_files)} file dữ liệu trong {DATA_FOLDER}")
+    print(f"[T1] Tổng số file dữ liệu: {len(csv_files)}")
+    n_checked, n_signal, n_no_signal, n_error = 0, 0, 0, 0
     for fp in csv_files:
         try:
             symbol = os.path.basename(fp).split('_')[0]
-            print(f"[T1] --- Kiểm tra {symbol} ({fp}) ---")
             df = pd.read_csv(fp)
             if not {'open','high','low','close','volume'}.issubset(df.columns):
                 df.columns = ['timestamp','open','high','low','close','volume'][:df.shape[1]]
             if len(df) < EMA_LEN + 1:
-                print(f"[T1] {symbol}: File quá ngắn ({len(df)} nến), bỏ qua.")
                 continue
             num_open = cleanup_closed_orders(symbol, active_orders)
-            print(f"[T1] {symbol}: Số lệnh đang mở: {num_open}")
             direction = calc_signals(df)
-            if not direction:
-                print(f"[T1] {symbol}: KHÔNG có tín hiệu vào lệnh.")
-            elif num_open >= MAX_OPEN:
-                print(f"[T1] {symbol}: Đã đủ {MAX_OPEN} lệnh, KHÔNG vào lệnh mới.")
-            else:
-                entry_price = df['close'].iat[-1]
-                qty, precision = get_qty(symbol, entry_price)
-                qty = round(qty, precision)
-                if qty > 0:
-                    place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_orders)
+            n_checked += 1
+            if direction:
+                n_signal += 1
+                print(f"[T1] {symbol}: Có tín hiệu '{direction.upper()}'. Số lệnh đang mở: {num_open}")
+                if num_open < MAX_OPEN:
+                    entry_price = df['close'].iat[-1]
+                    qty, precision = get_qty(symbol, entry_price)
+                    qty = round(qty, precision)
+                    if qty > 0:
+                        place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_orders)
+                    else:
+                        print(f"[T1] {symbol}: Không vào lệnh do qty=0")
                 else:
-                    print(f"[T1] {symbol}: Không vào lệnh do qty=0")
-                time.sleep(0.2)
+                    print(f"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.")
+            else:
+                n_no_signal += 1
         except Exception as e:
-            logging.warning(f"Lỗi với file {fp}: {e}")
+            logging.warning(f"[T1] Lỗi xử lý {fp}: {e}")
+            n_error += 1
+    print(f"[T1] Tổng kết: {n_checked} symbol, {n_signal} có tín hiệu, {n_no_signal} không có tín hiệu, {n_error} lỗi.")
 
 if __name__ == "__main__":
     main()
