@@ -43,7 +43,7 @@ if __name__ == "__main__":
         print("=== [DEBUG] worker.py main starting ===")
         job()
         scheduler = BlockingScheduler()
-        scheduler.add_job(job, "cron", minute=1)  # Chạy vào phút 01 mỗi giờ
+        scheduler.add_job(job, "cron", minute=0, second=15)
         print("[WORKER] Scheduler started. Job sẽ chạy mỗi giờ vào phút 01.")
         scheduler.start()
     except Exception as e:
