@@ -11,9 +11,8 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 
 # ==== CẤU HÌNH ====
-contracts_file = r"D:\C5_COIN\B2_BIG_DATA\1_S1_SoLuong_Cap\capcoin.csv"
-data_folder = r"D:\C5_COIN\B3_BBRSI\Data1200bar"
-
+contracts_file = "capcoin.csv"
+data_folder = "/data/Data1200bar"
 interval = "60"  # nến 1h
 batch_limit = 200  # theo khuyến nghị Bybit; có thể tăng lên 400 nếu cần
 sem_limit = 10  # số symbol xử lý đồng thời
