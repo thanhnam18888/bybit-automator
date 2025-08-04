@@ -1,4 +1,5 @@
+pybit
 pandas
 numpy
-pybit
-apscheduler
+ta
+aiohttp
