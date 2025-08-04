@@ -12,7 +12,7 @@ from pybit.unified_trading import HTTP
 API_KEY      = "fbUayzuilSFH13a87H"
 API_SECRET   = "mwJRm13UYelLHJsL00iyHFX2AjX2VPX6dL4N"
 RECV_WINDOW  = 60000
-DATA_FOLDER  = r"D:\C5_COIN\B3_BBRSI\Data1200bar"
+DATA_FOLDER = "/data/Data1200bar"
 MAX_OPEN     = 100
 MARGIN       = 2.0
 LEVERAGE     = 10
@@ -25,8 +25,7 @@ BB_LEN       = 20
 STDDEV       = 2.0
 EMA_LEN      = 200
 WAIT_BARS    = 5
-ORDER_LOG    = "active_orders.json"
-
+ORDER_LOG    = "/data/active_orders.json"
 logging.basicConfig(level=logging.INFO)
 
 print("[T1] Kết nối Bybit...")
