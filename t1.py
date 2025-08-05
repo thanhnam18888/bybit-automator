@@ -9,8 +9,8 @@ import json
 from pybit.unified_trading import HTTP
 
 # ==== CẤU HÌNH ====
-API_KEY      = "fbUayzuilSFH13a87H"
-API_SECRET   = "mwJRm13UYelLHJsL00iyHFX2AjX2VPX6dL4N"
+API_KEY      = os.getenv("BYBIT_API_KEY")
+API_SECRET   = os.getenv("BYBIT_API_SECRET")
 RECV_WINDOW  = 60000
 DATA_FOLDER = "/data/Data1200bar"
 MAX_OPEN     = 100
