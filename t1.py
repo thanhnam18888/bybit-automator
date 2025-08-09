@@ -173,7 +173,6 @@ def check_position(symbol, direction):
 
 
 def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_orders):
-
     # Bảo đảm leverage đã được set trước khi đặt lệnh
     try:
         ensure_leverage(symbol, LEVERAGE)
@@ -182,17 +181,18 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
     if len(active_orders.get(symbol, [])) >= MAX_OPEN:
         print(f"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.")
         return
-        # Giữ nguyên logic cũ để không phá cấu trúc
-        if direction == "long":
-            side = "Buy"
-            entered_is_short = False
-            close_side = "Sell"
-        elif direction == "short":
-            side = "Sell"
-            entered_is_short = True
-            close_side = "Buy"
-        else:
-            return
+    # Side mapping (outside MAX_OPEN block)
+    if direction == "long":
+        side = "Buy"
+        entered_is_short = False
+        close_side = "Sell"
+    elif direction == "short":
+        side = "Sell"
+        entered_is_short = True
+        close_side = "Buy"
+    else:
+        return
+
         print(f"[T1] {symbol}: VÀO LỆNH {direction.upper()} MARKET | qty={qty}")
     try:
         # 1) Vào lệnh MARKET
