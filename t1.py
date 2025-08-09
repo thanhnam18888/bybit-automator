@@ -8,6 +8,20 @@ import logging
 import json
 from pybit.unified_trading import HTTP
 
+
+
+def ensure_leverage(symbol, lev):
+    """Set leverage for both long/short sides on Bybit v5 before placing orders."""
+    try:
+        session.set_leverage(
+            category="linear",
+            symbol=symbol,
+            buyLeverage=str(lev),
+            sellLeverage=str(lev)
+        )
+    except Exception as e:
+        logging.warning(f"Không set leverage {symbol}: {e}")
+
 # ==== CẤU HÌNH ====
 API_KEY      = os.getenv("BYBIT_API_KEY")
 API_SECRET   = os.getenv("BYBIT_API_SECRET")
@@ -139,6 +153,12 @@ def check_position(symbol, direction):
         return 0.0
 
 def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_orders):
+
+    # Bảo đảm leverage đã được set trước khi đặt lệnh
+    try:
+        ensure_leverage(symbol, LEVERAGE)
+    except Exception:
+        pass
     if len(active_orders.get(symbol, [])) >= MAX_OPEN:
         print(f\"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.\")
         return
@@ -162,7 +182,6 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
             side=side,
             orderType=\"Market\",
             qty=f\"{qty}\",
-            leverage=LEVERAGE,
             reduceOnly=False,
             recv_window=RECV_WINDOW
         )
@@ -254,7 +273,7 @@ def main():
                 continue
             num_open = cleanup_closed_orders(symbol, active_orders)
             direction = calc_signals(df)
-            n_checked += 1
+\1    # Map LONG -> SHORT (giữ nguyên SHORT)\n    if direction == "long":\n        direction = "short"\n            n_checked += 1
             if direction:
                 n_signal += 1
                 print(f\"[T1] {symbol}: Có tín hiệu '{direction.upper()}'. Số lệnh đang mở: {num_open}\")
