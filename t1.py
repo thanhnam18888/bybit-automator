@@ -8,6 +8,88 @@ import logging
 import json
 from pybit.unified_trading import HTTP
 
+# === Linear symbol support & sizing helpers (merged) ===
+UNSUPPORTED = set()
+
+
+def tick_precision(x: float) -> int:
+    import math
+
+    if x >= 1 or x <= 0:
+        return 0
+    return max(0, -int(math.floor(math.log10(x))))
+
+
+def round_up_to_step(qty: float, step: float) -> float:
+    import math
+
+    if step <= 0:
+        return qty
+    prec = tick_precision(step) if step < 1 else 0
+    val = math.ceil(qty / step) * step
+    return float(f"{val:.{prec}f}")
+
+
+def floor_to_step(qty: float, step: float) -> float:
+    import math
+
+    if step <= 0:
+        return qty
+    prec = tick_precision(step) if step < 1 else 0
+    val = math.floor(qty / step) * step
+    return float(f"{val:.{prec}f}")
+
+
+def get_linear_filters(session, symbol: str):
+    """Return None if symbol has no linear contract or not Trading; otherwise filters dict."""
+    try:
+        info = session.get_instruments_info(category="linear", symbol=symbol)
+        lst = info.get("result", {}).get("list", [])
+        if not lst:
+            return None
+        it = lst[0]
+        if it.get("status") and it.get("status") != "Trading":
+            return None
+        pf = it.get("priceFilter", {})
+        lf = it.get("lotSizeFilter", {})
+        return {
+            "tick": float(pf.get("tickSize", 0) or 0),
+            "qty_step": float(lf.get("qtyStep", 0) or 0),
+            "min_qty": float(lf.get("minOrderQty", 0) or 0),
+        }
+    except Exception as e:
+        logging.warning(f"Không lấy được instruments info cho {symbol}: {e}")
+        return None
+
+
+MIN_NOTIONAL = 5.05  # >5 USDT để an toàn
+
+
+def autosize_qty(entry_price: float, filters: dict) -> float:
+    """Return a qty that satisfies Bybit min notional & min qty, rounded UP to step."""
+    if entry_price <= 0:
+        return 0.0
+    step = filters.get("qty_step", 0) or 0.0
+    min_qty = filters.get("min_qty", 0) or 0.0
+    if step <= 0:
+        # fallback: at least MIN_NOTIONAL/price
+        base = MIN_NOTIONAL / entry_price
+        return max(min_qty, base)
+    qty_by_notional = round_up_to_step(MIN_NOTIONAL / entry_price, step)
+    return max(min_qty, qty_by_notional)
+
+
+def round_to_tick(price: float, tick: float) -> float:
+    import math
+
+    if tick <= 0:
+        return price
+    prec = tick_precision(tick) if tick < 1 else 0
+    return float(f"{round(price / tick) * tick:.{prec}f}")
+
+
+# === End helpers ===
+
 
 def ensure_leverage(symbol, lev):
     """Set leverage for both long/short sides on Bybit v5 before placing orders."""
@@ -303,8 +385,32 @@ def main():
                     f"[T1] {symbol}: Có tín hiệu '{direction.upper()}'. Số lệnh đang mở: {num_open}"
                 )
                 if num_open < MAX_OPEN:
+                    # Linear contract check & cache
+                    if symbol in UNSUPPORTED:
+                        n_no_signal += 1
+                        continue
+                    filters = get_linear_filters(session, symbol)
+                    if not filters:
+                        print(
+                            f"[T1] {symbol}: Không hỗ trợ hợp đồng linear/không Trading → bỏ qua."
+                        )
+                        UNSUPPORTED.add(symbol)
+                        n_no_signal += 1
+                        continue
                     entry_price = df["close"].iat[-1]
                     qty, precision = get_qty(symbol, entry_price)
+                    # Ensure qty meets min notional & step
+                    min_qty_auto = autosize_qty(entry_price, filters)
+                    if qty < min_qty_auto:
+                        qty = min_qty_auto
+                    # Align to quantity step
+                    qty = floor_to_step(qty, filters["qty_step"])
+                    if qty <= 0 or qty < filters["min_qty"]:
+                        print(
+                            f"[T1] {symbol}: qty không hợp lệ sau autosize/align → bỏ qua."
+                        )
+                        n_no_signal += 1
+                        continue
                     qty = round(qty, precision)
                     if qty > 0:
                         place_market_order_with_tp_sl(
