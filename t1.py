@@ -16,6 +16,7 @@ DATA_FOLDER = "/data/Data1200bar"
 MAX_OPEN     = 100
 MARGIN       = 50
 LEVERAGE     = 4
+# Các tỷ lệ cũ (không dùng nữa), giữ nguyên để không phá cấu trúc
 TP_RATIO     = 0.99
 SL_RATIO     = 1.02
 RSI_LEN      = 14
@@ -26,6 +27,12 @@ STDDEV       = 2.0
 EMA_LEN      = 200
 WAIT_BARS    = 5
 ORDER_LOG    = "/data/active_orders.json"
+
+# ==== THAM SỐ TP/SL MỚI (theo yêu cầu) ====
+TP_BASE_PCT = 0.02    # +2%
+TP_OFFSET   = 0.003   # +0.3%  => tổng +2.3%
+SL_BASE_PCT = 0.037   # -3.7%
+SL_OFFSET   = 0.003   # -0.3%  => tổng -4.0% khi đặt limit "xấu" hơn trigger
 
 logging.basicConfig(level=logging.INFO)
 
@@ -65,14 +72,27 @@ def cleanup_closed_orders(symbol, active_orders):
     return len(open_order_ids)
 
 def get_qty(symbol, entry_price):
-    info = session.get_instruments_info(category="linear", symbol=symbol)
-    filt = info["result"]["list"][0]["lotSizeFilter"]
-    step = float(filt["qtyStep"])
-    min_qty = float(filt["minOrderQty"])
+    info = session.get_instruments_info(category=\"linear\", symbol=symbol)
+    filt = info[\"result\"][\"list\"][0][\"lotSizeFilter\"]
+    step = float(filt[\"qtyStep\"])
+    min_qty = float(filt[\"minOrderQty\"])
     raw = (MARGIN * LEVERAGE) / entry_price
     qty = max(min_qty, np.floor(raw / step) * step) if step > 0 else raw
     precision = abs(int(np.log10(step))) if step < 1 and step > 0 else 0
     return qty, precision
+
+def get_price_tick(symbol):
+    \"\"\"Lấy tick size & precision để làm tròn giá Limit theo quy định sàn.\"\"\"
+    info = session.get_instruments_info(category=\"linear\", symbol=symbol)
+    pf = info[\"result\"][\"list\"][0][\"priceFilter\"]
+    tick = float(pf[\"tickSize\"])
+    precision = abs(int(np.log10(tick))) if tick < 1 and tick > 0 else 0
+    return tick, precision
+
+def round_price(price, tick, precision):
+    if tick <= 0:
+        return price
+    return round(round(price / tick) * tick, precision)
 
 def calc_signals(df):
     if len(df) < EMA_LEN + 1:
@@ -87,133 +107,142 @@ def calc_signals(df):
     can_long = cond_long.iat[-1] and not cond_long.iloc[-WAIT_BARS:-1].any()
     can_short = cond_short.iat[-1] and not cond_short.iloc[-WAIT_BARS:-1].any()
     if can_long:
-        return "long"
+        return \"long\"
     elif can_short:
-        return "short"
+        return \"short\"
     return None
 
 def get_entry_price(order_id, symbol):
     for _ in range(10):
         try:
-            info = session.get_order_history(category="linear", symbol=symbol, orderId=order_id)
-            orders = info.get("result", {}).get("list", [])
-            if orders and orders[0].get("avgPrice"):
-                return float(orders[0]["avgPrice"])
+            info = session.get_order_history(category=\"linear\", symbol=symbol, orderId=order_id)
+            orders = info.get(\"result\", {}).get(\"list\", [])
+            if orders and orders[0].get(\"avgPrice\"):
+                return float(orders[0][\"avgPrice\"])
         except Exception as e:
-            logging.warning(f"Không lấy được giá entry cho order {order_id}: {e}")
+            logging.warning(f\"Không lấy được giá entry cho order {order_id}: {e}\")
         time.sleep(1)
     return None
 
 def check_position(symbol, direction):
     try:
-        info = session.get_positions(category="linear", symbol=symbol)
-        positions = info.get("result", {}).get("list", [])
+        info = session.get_positions(category=\"linear\", symbol=symbol)
+        positions = info.get(\"result\", {}).get(\"list\", [])
         if not positions:
             return 0.0
-        if direction == "long":
-            return float(positions[0].get("size", 0))
+        if direction == \"long\":
+            return float(positions[0].get(\"size\", 0))
         else:  # short
-            return -float(positions[0].get("size", 0))
+            return -float(positions[0].get(\"size\", 0))
     except Exception as e:
-        logging.warning(f"Lỗi kiểm tra position {symbol}: {e}")
+        logging.warning(f\"Lỗi kiểm tra position {symbol}: {e}\")
         return 0.0
 
 def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_orders):
     if len(active_orders.get(symbol, [])) >= MAX_OPEN:
-        print(f"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.")
+        print(f\"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.\")
         return
 
-    if direction == "long":
-        side = "Sell"
-        close_side = "Buy"
-    elif direction == "short":
-        side = "Buy"
-        close_side = "Sell"
+    # Giữ nguyên logic cũ để không phá cấu trúc
+    if direction == \"long\":
+        side = \"Sell\"
+        close_side_legacy = \"Buy\"
+    elif direction == \"short\":
+        side = \"Buy\"
+        close_side_legacy = \"Sell\"
     else:
         return
 
-    print(f"[T1] {symbol}: VÀO LỆNH {direction.upper()} MARKET | qty={qty}")
+    print(f\"[T1] {symbol}: VÀO LỆNH {direction.upper()} MARKET | qty={qty}\")
     try:
-        # 1. Đặt lệnh market vào lệnh
+        # 1) Vào lệnh MARKET
         order = session.place_order(
-            category="linear",
+            category=\"linear\",
             symbol=symbol,
             side=side,
-            orderType="Market",
-            qty=f"{qty}",
+            orderType=\"Market\",
+            qty=f\"{qty}\",
             leverage=LEVERAGE,
             reduceOnly=False,
             recv_window=RECV_WINDOW
         )
-        order_id = order.get("result", {}).get("orderId")
+        order_id = order.get(\"result\", {}).get(\"orderId\")
         if order_id:
             active_orders.setdefault(symbol, []).append(order_id)
             save_active_orders(active_orders)
 
-        # 2. Lấy giá entry thực tế sau khi market fill
+        # 2) Lấy giá entry thực tế
         real_entry = get_entry_price(order_id, symbol)
         if not real_entry:
             real_entry = entry_price
 
-        # Xác định vị thế THỰC TẾ dựa vào 'side' đã vào lệnh
-        entered_is_short = (side == "Sell")
+        # Xác định vị thế thực sự dựa theo side đã gửi
+        entered_is_short = (side == \"Sell\")  # nếu gửi Sell => đang short
+        # Close side CHUẨN theo vị thế
+        close_side = \"Buy\" if entered_is_short else \"Sell\"
 
+        # 3) Tính TP/SL theo yêu cầu mới
+        # LONG: TP = +2.3%, SL trigger = -3.7%, SL limit = -4.0%
+        # SHORT: TP = -2.3%, SL trigger = +3.7%, SL limit = +4.0%
         if entered_is_short:
-            # SHORT: TP dưới entry, SL trên entry
-            tp_price = real_entry * TP_RATIO
-            sl_price = real_entry * SL_RATIO
-            tp_trigger_dir = 2  # giá <= tp_price thì chốt lời
-            sl_trigger_dir = 1  # giá >= sl_price thì cắt lỗ
+            tp_raw = real_entry * (1 - (TP_BASE_PCT + TP_OFFSET))    # xuống 2.3%
+            sl_trig_raw = real_entry * (1 + SL_BASE_PCT)             # lên 3.7%
+            sl_lim_raw  = real_entry * (1 + SL_BASE_PCT + SL_OFFSET) # lên 4.0%
+            sl_trigger_dir = 1  # giá RISES ABOVE kích hoạt
         else:
-            # LONG: TP trên entry, SL dưới entry
-            tp_price = real_entry / TP_RATIO
-            sl_price = real_entry / SL_RATIO
-            tp_trigger_dir = 1  # giá >= tp_price thì chốt lời
-            sl_trigger_dir = 2  # giá <= sl_price thì cắt lỗ
+            tp_raw = real_entry * (1 + (TP_BASE_PCT + TP_OFFSET))    # lên 2.3%
+            sl_trig_raw = real_entry * (1 - SL_BASE_PCT)             # xuống 3.7%
+            sl_lim_raw  = real_entry * (1 - SL_BASE_PCT - SL_OFFSET) # xuống 4.0%
+            sl_trigger_dir = 2  # giá FALLS BELOW kích hoạt
 
-        tp_percent = abs(tp_price - real_entry) / real_entry * 100.0
-        sl_percent = abs(sl_price - real_entry) / real_entry * 100.0
+        # Làm tròn theo tick
+        tick, prec = get_price_tick(symbol)
+        tp_price   = round_price(tp_raw,      tick, prec)
+        sl_trigger = round_price(sl_trig_raw, tick, prec)
+        sl_limit   = round_price(sl_lim_raw,  tick, prec)
 
-        print(f"[T1] {symbol}: Đặt MARKET TP tại {tp_price:.4f} (~{tp_percent:.2f}%), "
-              f"MARKET SL tại {sl_price:.4f} (~{sl_percent:.2f}%)")
+        print(f\"[T1] {symbol}: Đặt TP LIMIT tại {tp_price:.{prec}f} (+{(TP_BASE_PCT+TP_OFFSET)*100:.2f}%), \"
+              f\"SL STOP-LIMIT trigger={sl_trigger:.{prec}f}, limit={sl_limit:.{prec}f} (-{(SL_BASE_PCT+SL_OFFSET)*100:.2f}% tổng)\")
 
-        # 3. Đặt TP/SL bằng conditional market order (chỉ để đóng vị thế)
+        # 4) Đặt TP LIMIT ReduceOnly (không trigger)
         tp_order = session.place_order(
-            category="linear",
+            category=\"linear\",
             symbol=symbol,
             side=close_side,
-            orderType="Market",
-            qty=f"{qty}",
-            triggerDirection=tp_trigger_dir,
-            triggerPrice=str(tp_price),
+            orderType=\"Limit\",
+            price=str(tp_price),
+            qty=f\"{qty}\",
             reduceOnly=True,
-            closeOnTrigger=True,
+            timeInForce=\"GTC\",
             recv_window=RECV_WINDOW
         )
 
+        # 5) Đặt SL STOP-LIMIT ReduceOnly (Limit + triggerPrice)
         sl_order = session.place_order(
-            category="linear",
+            category=\"linear\",
             symbol=symbol,
             side=close_side,
-            orderType="Market",
-            qty=f"{qty}",
+            orderType=\"Limit\",
+            price=str(sl_limit),
+            triggerPrice=str(sl_trigger),
+            triggerBy=\"LastPrice\",
             triggerDirection=sl_trigger_dir,
-            triggerPrice=str(sl_price),
+            qty=f\"{qty}\",
             reduceOnly=True,
-            closeOnTrigger=True,
+            timeInForce=\"GTC\",
             recv_window=RECV_WINDOW
         )
 
-        logging.info(f"[T1] TP resp: {tp_order}")
-        logging.info(f"[T1] SL resp: {sl_order}")
+        logging.info(f\"[T1] TP resp: {tp_order}\")
+        logging.info(f\"[T1] SL resp: {sl_order}\")
     except Exception as e:
-        logging.warning(f"Lỗi đặt lệnh {symbol}: {e}")
+        logging.warning(f\"Lỗi đặt lệnh {symbol}: {e}\")
         return None
 
 def main():
     active_orders = load_active_orders()
-    csv_files = glob.glob(os.path.join(DATA_FOLDER, "*_1h.csv"))
-    print(f"[T1] Tổng số file dữ liệu: {len(csv_files)}")
+    csv_files = glob.glob(os.path.join(DATA_FOLDER, \"*_1h.csv\"))
+    print(f\"[T1] Tổng số file dữ liệu: {len(csv_files)}\")
     n_checked, n_signal, n_no_signal, n_error = 0, 0, 0, 0
     for fp in csv_files:
         try:
@@ -228,7 +257,7 @@ def main():
             n_checked += 1
             if direction:
                 n_signal += 1
-                print(f"[T1] {symbol}: Có tín hiệu '{direction.upper()}'. Số lệnh đang mở: {num_open}")
+                print(f\"[T1] {symbol}: Có tín hiệu '{direction.upper()}'. Số lệnh đang mở: {num_open}\")
                 if num_open < MAX_OPEN:
                     entry_price = df['close'].iat[-1]
                     qty, precision = get_qty(symbol, entry_price)
@@ -236,15 +265,15 @@ def main():
                     if qty > 0:
                         place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_orders)
                     else:
-                        print(f"[T1] {symbol}: Không vào lệnh do qty=0")
+                        print(f\"[T1] {symbol}: Không vào lệnh do qty=0\")
                 else:
-                    print(f"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.")
+                    print(f\"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.\")
             else:
                 n_no_signal += 1
         except Exception as e:
-            logging.warning(f"[T1] Lỗi xử lý {fp}: {e}")
+            logging.warning(f\"[T1] Lỗi xử lý {fp}: {e}\")
             n_error += 1
-    print(f"[T1] Tổng kết: {n_checked} symbol, {n_signal} có tín hiệu, {n_no_signal} không có tín hiệu, {n_error} lỗi.")
+    print(f\"[T1] Tổng kết: {n_checked} symbol, {n_signal} có tín hiệu, {n_no_signal} không có tín hiệu, {n_error} lỗi.\")
 
-if __name__ == "__main__":
+if __name__ == \"__main__\":
     main()
