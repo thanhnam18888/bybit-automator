@@ -165,10 +165,10 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
 
     # Giữ nguyên logic cũ để không phá cấu trúc
     if direction == "long":
-        side = "Sell"
-        close_side_legacy = "Buy"
-    elif direction == "short":
-        side = "Buy"
+            side = "Buy"
+        elif direction == "short":
+            side = "Sell"
+        
         close_side_legacy = "Sell"
     else:
         return
@@ -273,7 +273,10 @@ def main():
                 continue
             num_open = cleanup_closed_orders(symbol, active_orders)
             direction = calc_signals(df)
-\1    # Map LONG -> SHORT (giữ nguyên SHORT)\n    if direction == "long":\n        direction = "short"\n            n_checked += 1
+
+            # Invert LONG -> SHORT as requested
+            if direction == "long":
+                direction = "short"
             if direction:
                 n_signal += 1
                 print(f"[T1] {symbol}: Có tín hiệu '{direction.upper()}'. Số lệnh đang mở: {num_open}")
