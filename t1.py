@@ -162,18 +162,17 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
     if len(active_orders.get(symbol, [])) >= MAX_OPEN:
         print(f"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.")
         return
-
-    # Giữ nguyên logic cũ để không phá cấu trúc
-    if direction == "long":
+        # Giữ nguyên logic cũ để không phá cấu trúc
+        if direction == "long":
             side = "Buy"
+            close_side_legacy = "Sell"
         elif direction == "short":
             side = "Sell"
-        
-        close_side_legacy = "Sell"
-    else:
-        return
+            close_side_legacy = "Buy"
+        else:
+            return
 
-    print(f"[T1] {symbol}: VÀO LỆNH {direction.upper()} MARKET | qty={qty}")
+        print(f"[T1] {symbol}: VÀO LỆNH {direction.upper()} MARKET | qty={qty}")
     try:
         # 1) Vào lệnh MARKET
         order = session.place_order(
