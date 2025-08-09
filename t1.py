@@ -154,39 +154,58 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
         real_entry = get_entry_price(order_id, symbol)
         if not real_entry:
             real_entry = entry_price
-        tp_price = real_entry * TP_RATIO if direction == "long" else real_entry / TP_RATIO
-        sl_price = real_entry * SL_RATIO if direction == "long" else real_entry * (2 - SL_RATIO)
-        tp_percent = (TP_RATIO - 1) * 100
-        sl_percent = (1 - SL_RATIO) * 100
 
-        # 3. Đặt TP/SL bằng conditional market order
-        print(f"[T1] {symbol}: Đặt MARKET TP tại {tp_price:.4f} (+{tp_percent:.2f}%), MARKET SL tại {sl_price:.4f} (-{sl_percent:.2f}%)")
-        # TP - khi giá >= tp_price (long) hoặc <= tp_price (short)
+        # Xác định vị thế THỰC TẾ dựa vào 'side' đã vào lệnh
+        entered_is_short = (side == "Sell")
+
+        if entered_is_short:
+            # SHORT: TP dưới entry, SL trên entry
+            tp_price = real_entry * TP_RATIO
+            sl_price = real_entry * SL_RATIO
+            tp_trigger_dir = 2  # giá <= tp_price thì chốt lời
+            sl_trigger_dir = 1  # giá >= sl_price thì cắt lỗ
+        else:
+            # LONG: TP trên entry, SL dưới entry
+            tp_price = real_entry / TP_RATIO
+            sl_price = real_entry / SL_RATIO
+            tp_trigger_dir = 1  # giá >= tp_price thì chốt lời
+            sl_trigger_dir = 2  # giá <= sl_price thì cắt lỗ
+
+        tp_percent = abs(tp_price - real_entry) / real_entry * 100.0
+        sl_percent = abs(sl_price - real_entry) / real_entry * 100.0
+
+        print(f"[T1] {symbol}: Đặt MARKET TP tại {tp_price:.4f} (~{tp_percent:.2f}%), "
+              f"MARKET SL tại {sl_price:.4f} (~{sl_percent:.2f}%)")
+
+        # 3. Đặt TP/SL bằng conditional market order (chỉ để đóng vị thế)
         tp_order = session.place_order(
             category="linear",
             symbol=symbol,
             side=close_side,
             orderType="Market",
             qty=f"{qty}",
-            triggerDirection=1 if direction == "long" else 2,  # 1: >=, 2: <=
+            triggerDirection=tp_trigger_dir,
             triggerPrice=str(tp_price),
             reduceOnly=True,
-            leverage=LEVERAGE,
+            closeOnTrigger=True,
             recv_window=RECV_WINDOW
         )
-        # SL - khi giá <= sl_price (long) hoặc >= sl_price (short)
+
         sl_order = session.place_order(
             category="linear",
             symbol=symbol,
             side=close_side,
             orderType="Market",
             qty=f"{qty}",
-            triggerDirection=2 if direction == "long" else 1,  # 2: <=, 1: >=
+            triggerDirection=sl_trigger_dir,
             triggerPrice=str(sl_price),
             reduceOnly=True,
-            leverage=LEVERAGE,
+            closeOnTrigger=True,
             recv_window=RECV_WINDOW
         )
+
+        logging.info(f"[T1] TP resp: {tp_order}")
+        logging.info(f"[T1] SL resp: {sl_order}")
     except Exception as e:
         logging.warning(f"Lỗi đặt lệnh {symbol}: {e}")
         return None
