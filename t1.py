@@ -8,102 +8,6 @@ import logging
 import json
 from pybit.unified_trading import HTTP
 
-# === Linear symbol support & sizing helpers (merged) ===
-UNSUPPORTED = set()
-
-
-def tick_precision(x: float) -> int:
-    import math
-
-    if x >= 1 or x <= 0:
-        return 0
-    return max(0, -int(math.floor(math.log10(x))))
-
-
-def round_up_to_step(qty: float, step: float) -> float:
-    import math
-
-    if step <= 0:
-        return qty
-    prec = tick_precision(step) if step < 1 else 0
-    val = math.ceil(qty / step) * step
-    return float(f"{val:.{prec}f}")
-
-
-def floor_to_step(qty: float, step: float) -> float:
-    import math
-
-    if step <= 0:
-        return qty
-    prec = tick_precision(step) if step < 1 else 0
-    val = math.floor(qty / step) * step
-    return float(f"{val:.{prec}f}")
-
-
-def get_linear_filters(session, symbol: str):
-    """Return None if symbol has no linear contract or not Trading; otherwise filters dict."""
-    try:
-        info = session.get_instruments_info(category="linear", symbol=symbol)
-        lst = info.get("result", {}).get("list", [])
-        if not lst:
-            return None
-        it = lst[0]
-        if it.get("status") and it.get("status") != "Trading":
-            return None
-        pf = it.get("priceFilter", {})
-        lf = it.get("lotSizeFilter", {})
-        return {
-            "tick": float(pf.get("tickSize", 0) or 0),
-            "qty_step": float(lf.get("qtyStep", 0) or 0),
-            "min_qty": float(lf.get("minOrderQty", 0) or 0),
-        }
-    except Exception as e:
-        logging.warning(f"Không lấy được instruments info cho {symbol}: {e}")
-        return None
-
-
-MIN_NOTIONAL = 5.05  # >5 USDT để an toàn
-
-
-def autosize_qty(entry_price: float, filters: dict) -> float:
-    """Return a qty that satisfies Bybit min notional & min qty, rounded UP to step."""
-    if entry_price <= 0:
-        return 0.0
-    step = filters.get("qty_step", 0) or 0.0
-    min_qty = filters.get("min_qty", 0) or 0.0
-    if step <= 0:
-        # fallback: at least MIN_NOTIONAL/price
-        base = MIN_NOTIONAL / entry_price
-        return max(min_qty, base)
-    qty_by_notional = round_up_to_step(MIN_NOTIONAL / entry_price, step)
-    return max(min_qty, qty_by_notional)
-
-
-def round_to_tick(price: float, tick: float) -> float:
-    import math
-
-    if tick <= 0:
-        return price
-    prec = tick_precision(tick) if tick < 1 else 0
-    return float(f"{round(price / tick) * tick:.{prec}f}")
-
-
-# === End helpers ===
-
-
-def ensure_leverage(symbol, lev):
-    """Set leverage for both long/short sides on Bybit v5 before placing orders."""
-    try:
-        session.set_leverage(
-            category="linear",
-            symbol=symbol,
-            buyLeverage=str(lev),
-            sellLeverage=str(lev),
-        )
-    except Exception as e:
-        logging.warning(f"Không set leverage {symbol}: {e}")
-
-
 # ==== CẤU HÌNH ====
 API_KEY = os.getenv("BYBIT_API_KEY")
 API_SECRET = os.getenv("BYBIT_API_SECRET")
@@ -112,9 +16,8 @@ DATA_FOLDER = "/data/Data1200bar"
 MAX_OPEN = 100
 MARGIN = 50
 LEVERAGE = 4
-# Các tỷ lệ cũ (không dùng nữa), giữ nguyên để không phá cấu trúc
-TP_RATIO = 0.99
-SL_RATIO = 1.02
+TP_RATIO = 0.957
+SL_RATIO = 1.077
 RSI_LEN = 14
 RSI_OB = 80
 RSI_OS = 20
@@ -123,12 +26,6 @@ STDDEV = 2.0
 EMA_LEN = 200
 WAIT_BARS = 5
 ORDER_LOG = "/data/active_orders.json"
-
-# ==== THAM SỐ TP/SL MỚI (theo yêu cầu) ====
-TP_BASE_PCT = 0.02  # +2%
-TP_OFFSET = 0.003  # +0.3%  => tổng +2.3%
-SL_BASE_PCT = 0.037  # -3.7%
-SL_OFFSET = 0.003  # -0.3%  => tổng -4.0% khi đặt limit "xấu" hơn trigger
 
 logging.basicConfig(level=logging.INFO)
 
@@ -186,21 +83,6 @@ def get_qty(symbol, entry_price):
     return qty, precision
 
 
-def get_price_tick(symbol):
-    """Lấy tick size & precision để làm tròn giá Limit theo quy định sàn."""
-    info = session.get_instruments_info(category="linear", symbol=symbol)
-    pf = info["result"]["list"][0]["priceFilter"]
-    tick = float(pf["tickSize"])
-    precision = abs(int(np.log10(tick))) if tick < 1 and tick > 0 else 0
-    return tick, precision
-
-
-def round_price(price, tick, precision):
-    if tick <= 0:
-        return price
-    return round(round(price / tick) * tick, precision)
-
-
 def calc_signals(df):
     if len(df) < EMA_LEN + 1:
         return None
@@ -255,35 +137,29 @@ def check_position(symbol, direction):
 
 
 def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_orders):
-    # Bảo đảm leverage đã được set trước khi đặt lệnh
-    try:
-        ensure_leverage(symbol, LEVERAGE)
-    except Exception:
-        pass
     if len(active_orders.get(symbol, [])) >= MAX_OPEN:
         print(f"[T1] {symbol}: ĐÃ ĐỦ {MAX_OPEN} LỆNH đang mở, không vào lệnh mới.")
         return
-    # Side mapping (outside MAX_OPEN block)
+
     if direction == "long":
-        side = "Buy"
-        entered_is_short = False
-        close_side = "Sell"
-    elif direction == "short":
         side = "Sell"
-        entered_is_short = True
         close_side = "Buy"
+    elif direction == "short":
+        side = "Buy"
+        close_side = "Sell"
     else:
         return
 
-        print(f"[T1] {symbol}: VÀO LỆNH {direction.upper()} MARKET | qty={qty}")
+    print(f"[T1] {symbol}: VÀO LỆNH {direction.upper()} MARKET | qty={qty}")
     try:
-        # 1) Vào lệnh MARKET
+        # 1. Đặt lệnh market vào lệnh
         order = session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             orderType="Market",
             qty=f"{qty}",
+            leverage=LEVERAGE,
             reduceOnly=False,
             recv_window=RECV_WINDOW,
         )
@@ -292,62 +168,59 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
             active_orders.setdefault(symbol, []).append(order_id)
             save_active_orders(active_orders)
 
-        # 2) Lấy giá entry thực tế
+        # 2. Lấy giá entry thực tế sau khi market fill
         real_entry = get_entry_price(order_id, symbol)
         if not real_entry:
             real_entry = entry_price
 
-        # 3) Tính TP/SL theo yêu cầu mới
-        # LONG: TP = +2.3%, SL trigger = -3.7%, SL limit = -4.0%
-        # SHORT: TP = -2.3%, SL trigger = +3.7%, SL limit = +4.0%
-        if entered_is_short:
-            tp_raw = real_entry * (1 - (TP_BASE_PCT + TP_OFFSET))  # xuống 2.3%
-            sl_trig_raw = real_entry * (1 + SL_BASE_PCT)  # lên 3.7%
-            sl_lim_raw = real_entry * (1 + SL_BASE_PCT + SL_OFFSET)  # lên 4.0%
-            sl_trigger_dir = 1  # giá RISES ABOVE kích hoạt
-        else:
-            tp_raw = real_entry * (1 + (TP_BASE_PCT + TP_OFFSET))  # lên 2.3%
-            sl_trig_raw = real_entry * (1 - SL_BASE_PCT)  # xuống 3.7%
-            sl_lim_raw = real_entry * (1 - SL_BASE_PCT - SL_OFFSET)  # xuống 4.0%
-            sl_trigger_dir = 2  # giá FALLS BELOW kích hoạt
+        # Xác định vị thế THỰC TẾ dựa vào 'side' đã vào lệnh
+        entered_is_short = side == "Sell"
 
-        # Làm tròn theo tick
-        tick, prec = get_price_tick(symbol)
-        tp_price = round_price(tp_raw, tick, prec)
-        sl_trigger = round_price(sl_trig_raw, tick, prec)
-        sl_limit = round_price(sl_lim_raw, tick, prec)
+        if entered_is_short:
+            # SHORT: TP dưới entry, SL trên entry
+            tp_price = real_entry * TP_RATIO
+            sl_price = real_entry * SL_RATIO
+            tp_trigger_dir = 2  # giá <= tp_price thì chốt lời
+            sl_trigger_dir = 1  # giá >= sl_price thì cắt lỗ
+        else:
+            # LONG: TP trên entry, SL dưới entry
+            tp_price = real_entry / TP_RATIO
+            sl_price = real_entry / SL_RATIO
+            tp_trigger_dir = 1  # giá >= tp_price thì chốt lời
+            sl_trigger_dir = 2  # giá <= sl_price thì cắt lỗ
+
+        tp_percent = abs(tp_price - real_entry) / real_entry * 100.0
+        sl_percent = abs(sl_price - real_entry) / real_entry * 100.0
 
         print(
-            f"[T1] {symbol}: Đặt TP LIMIT tại {tp_price:.{prec}f} (+{(TP_BASE_PCT+TP_OFFSET)*100:.2f}%), "
-            f"SL STOP-LIMIT trigger={sl_trigger:.{prec}f}, limit={sl_limit:.{prec}f} (-{(SL_BASE_PCT+SL_OFFSET)*100:.2f}% tổng)"
+            f"[T1] {symbol}: Đặt MARKET TP tại {tp_price:.4f} (~{tp_percent:.2f}%), "
+            f"MARKET SL tại {sl_price:.4f} (~{sl_percent:.2f}%)"
         )
 
-        # 4) Đặt TP LIMIT ReduceOnly (không trigger)
+        # 3. Đặt TP/SL bằng conditional market order (chỉ để đóng vị thế)
         tp_order = session.place_order(
             category="linear",
             symbol=symbol,
             side=close_side,
-            orderType="Limit",
-            price=str(tp_price),
+            orderType="Market",
             qty=f"{qty}",
+            triggerDirection=tp_trigger_dir,
+            triggerPrice=str(tp_price),
             reduceOnly=True,
-            timeInForce="GTC",
+            closeOnTrigger=True,
             recv_window=RECV_WINDOW,
         )
 
-        # 5) Đặt SL STOP-LIMIT ReduceOnly (Limit + triggerPrice)
         sl_order = session.place_order(
             category="linear",
             symbol=symbol,
             side=close_side,
-            orderType="Limit",
-            price=str(sl_limit),
-            triggerPrice=str(sl_trigger),
-            triggerBy="LastPrice",
-            triggerDirection=sl_trigger_dir,
+            orderType="Market",
             qty=f"{qty}",
+            triggerDirection=sl_trigger_dir,
+            triggerPrice=str(sl_price),
             reduceOnly=True,
-            timeInForce="GTC",
+            closeOnTrigger=True,
             recv_window=RECV_WINDOW,
         )
 
@@ -375,42 +248,15 @@ def main():
                 continue
             num_open = cleanup_closed_orders(symbol, active_orders)
             direction = calc_signals(df)
-
-            # Invert LONG -> SHORT as requested
-            if direction == "long":
-                direction = "short"
+            n_checked += 1
             if direction:
                 n_signal += 1
                 print(
                     f"[T1] {symbol}: Có tín hiệu '{direction.upper()}'. Số lệnh đang mở: {num_open}"
                 )
                 if num_open < MAX_OPEN:
-                    # Linear contract check & cache
-                    if symbol in UNSUPPORTED:
-                        n_no_signal += 1
-                        continue
-                    filters = get_linear_filters(session, symbol)
-                    if not filters:
-                        print(
-                            f"[T1] {symbol}: Không hỗ trợ hợp đồng linear/không Trading → bỏ qua."
-                        )
-                        UNSUPPORTED.add(symbol)
-                        n_no_signal += 1
-                        continue
                     entry_price = df["close"].iat[-1]
                     qty, precision = get_qty(symbol, entry_price)
-                    # Ensure qty meets min notional & step
-                    min_qty_auto = autosize_qty(entry_price, filters)
-                    if qty < min_qty_auto:
-                        qty = min_qty_auto
-                    # Align to quantity step
-                    qty = floor_to_step(qty, filters["qty_step"])
-                    if qty <= 0 or qty < filters["min_qty"]:
-                        print(
-                            f"[T1] {symbol}: qty không hợp lệ sau autosize/align → bỏ qua."
-                        )
-                        n_no_signal += 1
-                        continue
                     qty = round(qty, precision)
                     if qty > 0:
                         place_market_order_with_tp_sl(
