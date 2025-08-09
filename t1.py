@@ -16,8 +16,8 @@ DATA_FOLDER = "/data/Data1200bar"
 MAX_OPEN     = 100
 MARGIN       = 50
 LEVERAGE     = 4
-TP_RATIO     = 1.02
-SL_RATIO     = 0.99
+TP_RATIO     = 0.99
+SL_RATIO     = 1.02
 RSI_LEN      = 14
 RSI_OB       = 80
 RSI_OS       = 20
@@ -124,11 +124,11 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
         return
 
     if direction == "long":
-        side = "Buy"
-        close_side = "Sell"
-    elif direction == "short":
         side = "Sell"
         close_side = "Buy"
+    elif direction == "short":
+        side = "Buy"
+        close_side = "Sell"
     else:
         return
 
