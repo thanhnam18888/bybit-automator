@@ -128,7 +128,7 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
         close_side = "Sell"
     elif direction == "short":
         side = "Sell"      # vào SELL (short) khi có tín hiệu short
-        close_side = "Buy
+        close_side = "Buy"
     else:
         return
 
@@ -160,14 +160,14 @@ def place_market_order_with_tp_sl(symbol, qty, entry_price, direction, active_or
 
         if entered_is_short:
             # SHORT: TP dưới entry, SL trên entry
-            tp_price = real_entry * TP_RATIO
-            sl_price = real_entry * SL_RATIO
+            tp_price = real_entry * (2 - TP_RATIO)  # ví dụ: 0.918 nếu TP_RATIO=1.082
+            sl_price = real_entry * (2 - SL_RATIO)  # ví dụ: 1.038 nếu SL_RATIO=0.962
             tp_trigger_dir = 2  # giá <= tp_price thì chốt lời
             sl_trigger_dir = 1  # giá >= sl_price thì cắt lỗ
         else:
             # LONG: TP trên entry, SL dưới entry
-            tp_price = real_entry / TP_RATIO
-            sl_price = real_entry / SL_RATIO
+            tp_price = real_entry * TP_RATIO        # 1.082 × entry
+            sl_price = real_entry * SL_RATIO        # 0.962 × entry
             tp_trigger_dir = 1  # giá >= tp_price thì chốt lời
             sl_trigger_dir = 2  # giá <= sl_price thì cắt lỗ
 
